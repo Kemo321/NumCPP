@@ -21,11 +21,14 @@ public:
     NDArray<T>& operator=(NDArray<T>&& other) noexcept; // Move assignment
     NDArray(const std::vector<size_t>& shape, const T& init_val = T()); // Constructor with shape
     NDArray(std::initializer_list<size_t> shape, const T& init_val = T()); // Constructor with initializer list
+    NDArray(const std::vector<size_t>& shape, const std::vector<T>& data); // Constructor with shape and data
+    NDArray(std::initializer_list<size_t> shape, const std::vector<T>& data); // Constructor with initializer list and data
 
     // Basic Array Properties
     std::vector<size_t> shape() const;
     size_t ndim() const;
     size_t size() const;
+    std::vector<size_t> strides() const;
     NDArray<T> reshape(const std::vector<size_t>& new_shape) const;
     std::vector<T> flatten() const;
     T sum() const;
@@ -58,9 +61,15 @@ public:
     NDArray<T> copy() const;
 
     // Element Access
-    T& operator()(int);
+    T& operator()(size_t index);
+    const T& operator()(size_t index) const;
     T& operator()(const std::vector<size_t>& indices);
     const T& operator()(const std::vector<size_t>& indices) const;
+
+    T& operator[](size_t index);
+    const T& operator[](size_t index) const;
+    T& operator[](const std::vector<size_t>& indices);
+    const T& operator[](const std::vector<size_t>& indices) const;
 
     // Arithmetic Operators (element-wise)
     NDArray<T> operator+(const NDArray<T>& other) const;

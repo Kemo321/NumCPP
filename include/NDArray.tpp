@@ -92,6 +92,36 @@ NDArray<T>::NDArray(std::initializer_list<size_t> shape, const T& init_val)
     fill(init_val);  // Use parallel fill to initialize
 }
 
+template<typename T>
+NDArray<T>::NDArray(const std::vector<size_t>& shape, const std::vector<T>& data)
+    : shape_(shape), strides_(compute_strides(shape_)) {
+    size_t total = 1;
+    for (auto s : shape_){
+        if(s <= 0)
+            throw std::invalid_argument("Shape dimensions must be positive");
+        total *= s;
+    }
+    if (data.size() != total)
+        throw std::invalid_argument("Data size does not match shape");
+    data_ = new T[total];
+    std::copy(data.begin(), data.end(), data_);
+}
+
+template<typename T>
+NDArray<T>::NDArray(std::initializer_list<size_t> shape, const std::vector<T>& data)
+    : shape_(shape), strides_(compute_strides(shape_)) {
+    size_t total = 1;
+    for (auto s : shape_){
+        if(s <= 0)
+            throw std::invalid_argument("Shape dimensions must be positive");
+        total *= s;
+    }
+    if (data.size() != total)
+        throw std::invalid_argument("Data size does not match shape");
+    data_ = new T[total];
+    std::copy(data.begin(), data.end(), data_);
+}
+
 //
 // Basic Array Properties
 //
@@ -114,6 +144,11 @@ size_t NDArray<T>::size() const {
     for (auto s : shape_)
         total *= s;
     return total;
+}
+
+template<typename T>
+std::vector<size_t> NDArray<T>::strides() const {
+    return strides_;
 }
 
 template<typename T>
@@ -303,7 +338,6 @@ void NDArray<T>::ones() {
 
 template<typename T>
 void NDArray<T>::transpose() {
-    // This implementation reverses the axes.
     std::vector<size_t> new_shape(shape_.rbegin(), shape_.rend());  // Reverse the shape
     std::vector<size_t> new_strides = compute_strides(new_shape);   // Compute strides for the new shape
     size_t total = size();                                          // Total number of elements
@@ -315,18 +349,19 @@ void NDArray<T>::transpose() {
     for (unsigned i = 0; i < nthreads; i++) {                       // Loop over threads
         size_t start = i * block;                                   // Start index
         size_t end = (i == nthreads - 1) ? total : start + block;   // End index
-        threads.push_back(std::thread([=, &new_data, &new_shape, this]() { // Create a thread
+        threads.push_back(std::thread([=]() {                       // Capture by value, no explicit 'this'
             for (size_t j = start; j < end; j++) {
-                // Convert flat index j into multi-index for the new shape.
                 std::vector<size_t> new_idx(new_shape.size());
                 size_t tmp = j;
                 for (int k = static_cast<int>(new_shape.size()) - 1; k >= 0; k--) {
                     new_idx[k] = tmp % new_shape[k];
                     tmp /= new_shape[k];
                 }
-                // Reverse indices to obtain the corresponding indices in the original array.
                 std::vector<size_t> orig_idx(new_idx.rbegin(), new_idx.rend());
-                size_t orig_flat = compute_index(orig_idx);
+                size_t orig_flat = 0;
+                for (size_t k = 0; k < orig_idx.size(); k++) {
+                    orig_flat += orig_idx[k] * strides_[k];
+                }
                 new_data[j] = data_[orig_flat];
             }
         }));
@@ -341,24 +376,13 @@ void NDArray<T>::transpose() {
 
 template<typename T>
 void NDArray<T>::reverse() {
-    // Reverse the flat data order.
     size_t total = size();
-    size_t half = total / 2;
-    unsigned nthreads = std::thread::hardware_concurrency();
-    if (nthreads == 0) nthreads = 2;
-    size_t block = half / nthreads;
-    std::vector<std::thread> threads;
-    for (unsigned i = 0; i < nthreads; i++) {
-        size_t start = i * block;
-        size_t end = (i == nthreads - 1) ? half : start + block;
-        threads.push_back(std::thread([=, total, this]() {
-            for (size_t j = start; j < end; j++) {
-                std::swap(data_[j], data_[total - 1 - j]);
-            }
-        }));
+    T* new_data = new T[total];
+    for (size_t i = 0; i < total; i++) {
+        new_data[i] = data_[total - 1 - i];
     }
-    for (auto &t : threads)
-        t.join();
+    delete[] data_;
+    data_ = new_data;
 }
 
 template<typename T>
@@ -371,7 +395,7 @@ void NDArray<T>::pow(const T& exponent) {
     for (unsigned i = 0; i < nthreads; i++) {
         size_t start = i * block;              // Start index
         size_t end = (i == nthreads - 1) ? total : start + block; // End index
-        threads.push_back(std::thread([=, this]() {     // Create a thread
+        threads.push_back(std::thread([this, start, end, exponent]() {     // Create a thread
             for (size_t j = start; j < end; j++) { // Loop over elements
                 data_[j] = std::pow(data_[j], exponent); // Compute the power
             }
@@ -412,37 +436,32 @@ void NDArray<T>::invert() {
     invert_helper();
 }
 
-template<typename T>
-std::vector<size_t> NDArray<T>::compute_strides(const std::vector<size_t>& shape) const {
-    std::vector<size_t> strides(shape.size());
-    if (shape.empty()) return strides;
-    strides.back() = 1;
-    for (int i = static_cast<int>(shape.size()) - 2; i >= 0; i--) {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    return strides;
-}
+//
+// Copy utility
+//
 
 template<typename T>
-size_t NDArray<T>::compute_index(const std::vector<size_t>& indices) const {
-    if (indices.size() != shape_.size())
-        throw std::runtime_error("Number of indices does not match array dimension");
-    size_t index = 0;
-    for (size_t i = 0; i < indices.size(); i++) {
-        if (indices[i] >= shape_[i])
-            throw std::runtime_error("Index out of bounds");
-        index += indices[i] * strides_[i];
-    }
-    return index;
+NDArray<T> NDArray<T>::copy() const {
+    NDArray<T> new_array;
+    new_array.shape_ = shape_;
+    new_array.strides_ = strides_;
+    size_t total = size();
+    new_array.data_ = new T[total];
+    std::copy(data_, data_ + total, new_array.data_);
+    return new_array;
 }
-
 
 //
 // Element Access
 //
 
 template<typename T>
-T& NDArray<T>::operator()(int index) {
+T& NDArray<T>::operator()(size_t index) {
+    return data_[index];
+}
+
+template<typename T>
+const T& NDArray<T>::operator()(size_t index) const {  
     return data_[index];
 }
 
@@ -456,7 +475,25 @@ const T& NDArray<T>::operator()(const std::vector<size_t>& indices) const {
     return data_[compute_index(indices)];
 }
 
+template<typename T>
+T& NDArray<T>::operator[](size_t index) {
+    return operator()({index});
+}
 
+template<typename T>
+const T& NDArray<T>::operator[](size_t index) const {
+    return operator()({index});
+}
+
+template<typename T>
+T& NDArray<T>::operator[](const std::vector<size_t>& indices) {
+    return operator()(indices);
+}
+
+template<typename T>
+const T& NDArray<T>::operator[](const std::vector<size_t>& indices) const {
+    return operator()(indices);
+}
 
 //
 // Return Modified Array (non in-place)
@@ -512,21 +549,6 @@ NDArray<T> NDArray<T>::kernel() const {
     NDArray<T> result = copy();
     result.kernel();
     return result;
-}
-
-//
-// Copy utility
-//
-
-template<typename T>
-NDArray<T> NDArray<T>::copy() const {
-    NDArray<T> new_array;
-    new_array.shape_ = shape_;
-    new_array.strides_ = strides_;
-    size_t total = size();
-    new_array.data_ = new T[total];
-    std::copy(data_, data_ + total, new_array.data_);
-    return new_array;
 }
 
 //
@@ -649,7 +671,7 @@ NDArray<T> NDArray<T>::dot(const NDArray<T>& other) const {
     for (unsigned t = 0; t < nthreads; t++) {                                // Loop over threads
         size_t row_start = t * block;                                         // Start index
         size_t row_end = (t == nthreads - 1) ? m : row_start + block;           // End index
-        threads.push_back(std::thread([=, this, &other, &result]() {           // Create a thread
+        threads.push_back(std::thread([&, this]() {           // Create a thread
             for (size_t i = row_start; i < row_end; i++) {               // Loop over rows
                 for (size_t j = 0; j < p; j++) {               // Loop over columns
                     T sum = T(0);                                               // Initialize sum
@@ -681,6 +703,30 @@ void NDArray<T>::print() const {
             std::cout << ", ";
     }
     std::cout << "]\n";
+}
+
+template<typename T>
+std::vector<size_t> NDArray<T>::compute_strides(const std::vector<size_t>& shape) const {
+    std::vector<size_t> strides(shape.size());
+    if (shape.empty()) return strides;
+    strides.back() = 1;
+    for (int i = static_cast<int>(shape.size()) - 2; i >= 0; i--) {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    return strides;
+}
+
+template<typename T>
+size_t NDArray<T>::compute_index(const std::vector<size_t>& indices) const {
+    if (indices.size() != shape_.size())
+        throw std::runtime_error("Number of indices does not match array dimension");
+    size_t index = 0;
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (indices[i] >= shape_[i])
+            throw std::runtime_error("Index out of bounds");
+        index += indices[i] * strides_[i];
+    }
+    return index;
 }
 
 template <typename T>
@@ -738,56 +784,56 @@ void NDArray<T>::invert_helper() {
         throw std::invalid_argument("Matrix must be square to compute inverse.");
     }
 
-    T det = determinant_helper();
-    if (std::abs(det) < 1e-10) {
-        throw std::runtime_error("Matrix is singular and cannot be inverted.");
-    }
-
     size_t n = shape_[0];
-    NDArray<T> mat(*this);  // Create a copy of the matrix
-    NDArray<T> inv(n, n);   // Initialize the inverse matrix
-
-    // Augment the matrix with the identity matrix
+    NDArray<T> mat(*this);           // Working copy of the matrix
+    NDArray<T> inv({n, n}, T(0));    // Identity matrix to become the inverse
     for (size_t i = 0; i < n; ++i) {
-        inv(i, i) = 1;
+        inv({i, i}) = 1;
     }
 
-    // Perform Gaussian elimination with row operations
+    // Gaussian elimination with partial pivoting
     for (size_t i = 0; i < n; ++i) {
-        // Find pivot row
+        // Find pivot
         size_t pivotRow = i;
+        T maxPivot = std::abs(mat({i, i}));
         for (size_t j = i + 1; j < n; ++j) {
-            if (std::abs(mat(j, i)) > std::abs(mat(pivotRow, i))) {
+            if (std::abs(mat({j, i})) > maxPivot) {
+                maxPivot = std::abs(mat({j, i}));
                 pivotRow = j;
             }
+        }
+        if (maxPivot < 1e-10) {
+            throw std::runtime_error("Matrix is singular and cannot be inverted.");
         }
 
         // Swap rows if necessary
         if (i != pivotRow) {
-            std::swap(mat.data_[i], mat.data_[pivotRow]);
-            std::swap(inv.data_[i], inv.data_[pivotRow]);
+            for (size_t k = 0; k < n; ++k) {
+                std::swap(mat({i, k}), mat({pivotRow, k}));
+                std::swap(inv({i, k}), inv({pivotRow, k}));
+            }
         }
 
-        // Normalize the pivot row
-        T pivot = mat(i, i);
-        for (size_t j = 0; j < n; ++j) {
-            mat(i, j) /= pivot;
-            inv(i, j) /= pivot;
+        // Scale pivot row to make pivot = 1
+        T pivot = mat({i, i});
+        for (size_t k = 0; k < n; ++k) {
+            mat({i, k}) /= pivot;
+            inv({i, k}) /= pivot;
         }
 
-        // Eliminate entries in other rows
+        // Eliminate column
         for (size_t j = 0; j < n; ++j) {
             if (j != i) {
-                T factor = mat(j, i);
+                T factor = mat({j, i});
                 for (size_t k = 0; k < n; ++k) {
-                    mat(j, k) -= factor * mat(i, k);
-                    inv(j, k) -= factor * inv(i, k);
+                    mat({j, k}) -= factor * mat({i, k});
+                    inv({j, k}) -= factor * inv({i, k});
                 }
             }
         }
     }
 
-    // Copy the inverse into the original matrix (for in-place operation)
+    // Copy result to original matrix
     *this = inv;
 }
 

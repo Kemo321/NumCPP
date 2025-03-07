@@ -28,6 +28,8 @@ set(TEST_SOURCES
     test/test_main.cpp
     test/NDArray/ConDes.cpp
     test/NDArray/Prop.cpp
+    test/NDArray/Modify.cpp
+    test/NDArray/Access.cpp
 )
 
 # Add test executable
