@@ -544,13 +544,6 @@ NDArray<T> NDArray<T>::inverted() const {
     return result;
 }
 
-template<typename T>
-NDArray<T> NDArray<T>::kernel() const {
-    NDArray<T> result = copy();
-    result.kernel();
-    return result;
-}
-
 //
 // Arithmetic Operators (element-wise)
 //

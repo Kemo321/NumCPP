@@ -45,7 +45,7 @@ public:
     void transpose();
     void reverse();
     void pow(const T& exponent);
-    void invert(); // In-place inversion
+    void invert();
 
     // Return modified array
     NDArray<T> filled(const T& value) const;
@@ -55,7 +55,6 @@ public:
     NDArray<T> powed(const T& exponent) const;
     NDArray<T> reversed() const;
     NDArray<T> inverted() const; // Non-modifying inverse
-    NDArray<T> kernel() const;
     
     // Return a copy of the array
     NDArray<T> copy() const;
