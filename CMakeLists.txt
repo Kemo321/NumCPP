@@ -1,61 +1,84 @@
-# Set the minimum required version for CMake
-cmake_minimum_required(VERSION 3.14)
-
-# Set the project name and version
+cmake_minimum_required(VERSION 3.20)
 project(NumCPP VERSION 1.0 LANGUAGES CXX)
 
-# Set C++ standard
-set(CMAKE_CXX_STANDARD 17)
+# Set C++23 standard
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Enable testing
+# Enable testing with CTest
 enable_testing()
 
-# GoogleTest setup via FetchContent for testing
+# Fetch GoogleTest with custom configuration to avoid -Werror,-Wdeprecated-copy
 include(FetchContent)
 FetchContent_Declare(
-  googletest
-  GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG        release-1.10.0  # Specify the version you want
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG release-1.11.0
 )
-
-# Fetch GoogleTest
+# Prevent GoogleTest from overriding compiler/linker options
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+# Suppress -Wdeprecated-copy for GoogleTest build
+set(CMAKE_CXX_FLAGS_BACKUP "${CMAKE_CXX_FLAGS}")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-copy -Wno-error=deprecated-copy")
+endif()
 FetchContent_MakeAvailable(googletest)
+# Restore original CXX flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BACKUP}")
 
-# Set test sources
+# Source and include directories
+set(NUMCPP_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+set(NUMCPP_TEST_DIR ${CMAKE_SOURCE_DIR}/test/NDArray)
+
+# Test sources
 set(TEST_SOURCES
-    test/test_main.cpp
-    test/NDArray/ConDes.cpp
-    test/NDArray/Prop.cpp
-    test/NDArray/Modify.cpp
-    test/NDArray/Access.cpp
+    ${NUMCPP_TEST_DIR}/ConDes.cpp
+    ${NUMCPP_TEST_DIR}/Prop.cpp
+    ${NUMCPP_TEST_DIR}/Modify.cpp
+    ${NUMCPP_TEST_DIR}/Access.cpp
 )
 
 # Add test executable
 add_executable(tests ${TEST_SOURCES})
 
-# Ensure runtime library consistency for MSVC (static or dynamic)
-if(MSVC)
-  # Set to static CRT for Debug and Release
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")  # Static CRT for Debug
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")  # Static CRT for Release
-  # or to dynamic CRT if you prefer:
-  # set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MDd")  # Dynamic CRT for Debug
-  # set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD")  # Dynamic CRT for Release
-endif()
-
-# Set runtime library to be consistent
-set_target_properties(tests PROPERTIES
-  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
-)
-
-# Link GoogleTest
-target_link_libraries(tests gtest_main)
+# Link GoogleTest and GoogleMock
+target_link_libraries(tests PRIVATE GTest::gtest_main GTest::gmock_main)
 
 # Include directories
-target_include_directories(tests PRIVATE include)
+target_include_directories(tests PRIVATE ${NUMCPP_INCLUDE_DIR})
 
-# Add test
-add_test(NAME tests COMMAND tests)
+# MSVC runtime library configuration
+if(MSVC)
+    # Use static CRT for consistency (MultiThreaded for Release, MultiThreadedDebug for Debug)
+    target_compile_options(tests PRIVATE
+        $<$<CONFIG:Debug>:/MTd>
+        $<$<CONFIG:Release>:/MT>
+    )
+endif()
 
+# Compiler-specific options for the main project
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(tests PRIVATE
+        -Wall -Wextra -Wpedantic
+    )
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(tests PRIVATE
+        /W4
+        /wd4996 # Suppress deprecated function warnings
+    )
+endif()
+
+# Enable test discovery
+include(GoogleTest)
+gtest_discover_tests(tests)
+
+# Install rules (optional)
+install(TARGETS tests DESTINATION bin)
+install(DIRECTORY ${NUMCPP_INCLUDE_DIR}/ DESTINATION include/NumCPP
+        FILES_MATCHING PATTERN "*.hpp" PATTERN "*.tpp")
+
+# Diagnostic output
+message(STATUS "CMAKE_CXX_COMPILER: ${CMAKE_CXX_COMPILER}")
+message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
+message(STATUS "GoogleTest source dir: ${googletest_SOURCE_DIR}")
