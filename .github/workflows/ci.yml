@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install clang-format
         run: apt update --yes && apt install --yes clang-format
       - name: Check code format
@@ -26,9 +26,11 @@ jobs:
         gcc: [11, 14]
     container: gcc:${{ matrix.gcc }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
-        run: apt update --yes && apt install --yes cmake clang-tidy
+        run: apt update --yes && apt install --yes cmake clang-tidy libgtest-dev googletest
+      - name: Build Google Test
+        run: cd /usr/src/googletest && mkdir build && cd build && cmake .. && make && make install
       - name: Create build directory
         run: mkdir build-gcc${{ matrix.gcc }}
       - name: Configure CMake
@@ -36,10 +38,11 @@ jobs:
       - name: Build
         run: cd build-gcc${{ matrix.gcc }} && make
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-gcc${{ matrix.gcc }}
           path: build-gcc${{ matrix.gcc }}/
+          retention-days: 1
 
   test:
     runs-on: ubuntu-latest
@@ -49,11 +52,17 @@ jobs:
         gcc: [11, 14]
     container: gcc:${{ matrix.gcc }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apt update --yes && apt install --yes libgtest-dev googletest
+      - name: Build Google Test
+        run: cd /usr/src/googletest && mkdir build && cd build && cmake .. && make && make install
       - name: Download build artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: build-gcc${{ matrix.gcc }}
           path: build-gcc${{ matrix.gcc }}
+      - name: Make executable
+        run: chmod -R +x build-gcc${{ matrix.gcc }}
       - name: Run tests
         run: cd build-gcc${{ matrix.gcc }} && ./tests
