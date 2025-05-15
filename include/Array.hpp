@@ -61,6 +61,11 @@ public:
     const T& operator()(size_t index) const;
     T& operator()(const std::vector<size_t>& indices);
     const T& operator()(const std::vector<size_t>& indices) const;
+    template<typename... Indices>
+    T& operator()(Indices... indices);
+    template<typename... Indices>
+    const T& operator()(Indices... indices) const;
+
     T& operator[](size_t index);
     const T& operator[](size_t index) const;
     T& operator[](const std::vector<size_t>& indices);
@@ -71,11 +76,61 @@ public:
     Array<T> operator-(const Array<T>& other) const;
     Array<T> operator*(const Array<T>& other) const;
     Array<T> operator/(const Array<T>& other) const;
+    Array<T> operator+(const T& scalar) const;
+    Array<T> operator-(const T& scalar) const;
+    Array<T> operator*(const T& scalar) const;
+    Array<T> operator/(const T& scalar) const;
+    Array<T>& operator+=(const Array<T>& other);
+    Array<T>& operator-=(const Array<T>& other);
+    Array<T>& operator*=(const Array<T>& other);
+    Array<T>& operator/=(const Array<T>& other);
+    Array<T>& operator+=(const T& scalar);
+    Array<T>& operator-=(const T& scalar);
+    Array<T>& operator*=(const T& scalar);
+    Array<T>& operator/=(const T& scalar);
+    Array<T> operator-() const;
+    Array<T> operator+() const;
+    Array<T> operator++();
+    Array<T> operator--();
+    Array<T> operator++(int);
+    Array<T> operator--(int);
+    Array<T> operator!() const;
+    Array<T> operator~() const;
+    Array<T> operator&() const;
+    Array<T>& operator&();
+    Array<T> operator&(const Array<T>& other) const;
+    Array<T> operator|(const Array<T>& other) const;
+    Array<T> operator^(const Array<T>& other) const;
+    Array<T>& operator&=(const Array<T>& other);
+    Array<T>& operator|=(const Array<T>& other);
+    Array<T>& operator^=(const Array<T>& other);
+    Array<T> operator&(const T& scalar) const;
+    Array<T> operator|(const T& scalar) const;
+    Array<T> operator^(const T& scalar) const;
+    Array<T>& operator&=(const T& scalar);
+    Array<T>& operator|=(const T& scalar);
+    Array<T>& operator^=(const T& scalar);
+    Array<T> operator==(const Array<T>& other) const;
+    Array<T> operator!=(const Array<T>& other) const;
+    Array<T> operator<(const Array<T>& other) const;
+    Array<T> operator<=(const Array<T>& other) const;
+    Array<T> operator>(const Array<T>& other) const;
+    Array<T> operator>=(const Array<T>& other) const;
+    Array<T> operator==(const T& scalar) const;
+    Array<T> operator!=(const T& scalar) const;
+    Array<T> operator<(const T& scalar) const;
+    Array<T> operator<=(const T& scalar) const;
+    Array<T> operator>(const T& scalar) const;
+    Array<T> operator>=(const T& scalar) const;
+    Array<T> operator&&(const Array<T>& other) const;
+    Array<T> operator||(const Array<T>& other) const;
+    Array<T> operator&&(const T& scalar) const;
+    Array<T> operator||(const T& scalar) const;
 
     // Utility
     void print() const;
 
-private:
+protected:
     std::vector<size_t> shape_;
     std::vector<size_t> strides_;
     T* data_;

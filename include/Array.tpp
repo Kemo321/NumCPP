@@ -10,7 +10,7 @@
 namespace NumCPP {
 
 template<typename T>
-Array<T>::Array() : data_(nullptr) {}
+Array<T>::Array() : shape_(), strides_(), data_(nullptr) {}
 
 template<typename T>
 Array<T>::~Array() {
@@ -31,14 +31,11 @@ Array<T>::Array(Array<T>&& other) noexcept : shape_(std::move(other.shape_)), st
 
 template<typename T>
 Array<T>& Array<T>::operator=(const Array<T>& other) {
-    if (this != &other) {
-        delete[] data_;
-        shape_ = other.shape_;
-        strides_ = other.strides_;
-        size_t total = other.size();
-        data_ = new T[total];
-        std::copy(other.data_, other.data_ + total, data_);
-    }
+    using std::swap;
+    Array<T> temp(other);
+    swap(shape_, temp.shape_);
+    swap(strides_, temp.strides_);
+    swap(data_, temp.data_);
     return *this;
 }
 
@@ -126,9 +123,6 @@ std::vector<size_t> Array<T>::strides() const {
 
 template<typename T>
 Array<T> Array<T>::reshape(const std::vector<size_t>& new_shape) const {
-    size_t new_size = 1;
-    for (auto dim : new_shape) new_size *= dim;
-    if (new_size != size()) throw std::runtime_error("New shape is incompatible with array size");
     Array<T> new_array(*this);
     new_array.shape_ = new_shape;
     new_array.strides_ = new_array.compute_strides(new_shape);
@@ -139,6 +133,10 @@ template<typename T>
 std::vector<T> Array<T>::flatten() const {
     size_t total = size();
     std::vector<T> flat(total);
+    if (total < 1000) {
+        std::copy(data_, data_ + total, flat.begin());
+        return flat;
+    }
     unsigned nthreads = std::thread::hardware_concurrency();
     if (nthreads == 0) nthreads = 2;
     size_t block = total / nthreads;
@@ -160,25 +158,37 @@ template<typename T>
 T Array<T>::sum() const {
     T total = 0;
     size_t total_size = size();
+    if (total_size < 1000) {
+        for (size_t i = 0; i < total_size; i++) {
+            total += data_[i];
+        }
+        return total;
+    }
+
     unsigned nthreads = std::thread::hardware_concurrency();
     if (nthreads == 0) nthreads = 2;
     size_t block = total_size / nthreads;
     std::vector<std::thread> threads;
+    std::vector<T> partial_sums(nthreads, T(0));
     for (unsigned i = 0; i < nthreads; i++) {
         size_t start = i * block;
         size_t end = (i == nthreads - 1) ? total_size : start + block;
-        threads.push_back(std::thread([this, &total, start, end]() {
+        threads.push_back(std::thread([this, start, end, &partial_sums, i]() {
+            T local_sum = T(0);
             for (size_t j = start; j < end; j++) {
-                total += data_[j];
+                local_sum += data_[j];
             }
+            partial_sums[i] = local_sum;
         }));
     }
-    for (auto &t : threads) t.join();
+    for (auto& t : threads) t.join();
+    for (const auto& ps : partial_sums) total += ps;
     return total;
 }
 
 template<typename T>
 T Array<T>::mean() const {
+    if (size() == 0) throw std::runtime_error("Cannot compute mean of empty array");
     return sum() / size();
 }
 
@@ -186,22 +196,35 @@ template<typename T>
 T Array<T>::min() const {
     T min_val = std::numeric_limits<T>::max();
     size_t total_size = size();
+    if (total_size < 1000) {
+        for (size_t i = 0; i < total_size; i++) {
+            if (data_[i] < min_val) {
+                min_val = data_[i];
+            }
+        }
+        return min_val;
+    }
+
     unsigned nthreads = std::thread::hardware_concurrency();
     if (nthreads == 0) nthreads = 2;
     size_t block = total_size / nthreads;
     std::vector<std::thread> threads;
+    std::vector<T> thread_mins(nthreads, std::numeric_limits<T>::max());
     for (unsigned i = 0; i < nthreads; i++) {
         size_t start = i * block;
         size_t end = (i == nthreads - 1) ? total_size : start + block;
-        threads.push_back(std::thread([this, &min_val, start, end]() {
+        threads.push_back(std::thread([this, start, end, &thread_mins, i]() {
+            T local_min = std::numeric_limits<T>::max();
             for (size_t j = start; j < end; j++) {
-                if (data_[j] < min_val) {
-                    min_val = data_[j];
-                }
+                if (data_[j] < local_min) local_min = data_[j];
             }
+            thread_mins[i] = local_min;
         }));
     }
-    for (auto &t : threads) t.join();
+    for (auto& t : threads) t.join();
+    if (total_size == 0) throw std::runtime_error("Cannot compute min of empty array");
+    min_val = thread_mins[0];
+    for (const auto& tm : thread_mins) if (tm < min_val) min_val = tm;
     return min_val;
 }
 
@@ -209,22 +232,35 @@ template<typename T>
 T Array<T>::max() const {
     T max_val = std::numeric_limits<T>::lowest();
     size_t total_size = size();
+    if (total_size == 0) throw std::runtime_error("Cannot compute max of empty array");
+    if (total_size < 1000) {
+        for (size_t i = 0; i < total_size; i++) {
+            if (data_[i] > max_val) {
+                max_val = data_[i];
+            }
+        }
+        return max_val;
+    }
     unsigned nthreads = std::thread::hardware_concurrency();
     if (nthreads == 0) nthreads = 2;
     size_t block = total_size / nthreads;
     std::vector<std::thread> threads;
+    std::vector<T> thread_maxs(nthreads, std::numeric_limits<T>::lowest());
     for (unsigned i = 0; i < nthreads; i++) {
         size_t start = i * block;
         size_t end = (i == nthreads - 1) ? total_size : start + block;
-        threads.push_back(std::thread([this, &max_val, start, end]() {
+        threads.push_back(std::thread([this, start, end, &thread_maxs, i]() {
+            T local_max = std::numeric_limits<T>::lowest();
             for (size_t j = start; j < end; j++) {
-                if (data_[j] > max_val) {
-                    max_val = data_[j];
-                }
+                if (data_[j] > local_max) local_max = data_[j];
             }
+            thread_maxs[i] = local_max;
         }));
     }
-    for (auto &t : threads) t.join();
+    for (auto& t : threads) t.join();
+    if (total_size == 0) throw std::runtime_error("Cannot compute max of empty array");
+    max_val = thread_maxs[0];
+    for (const auto& tm : thread_maxs) if (tm > max_val) max_val = tm;
     return max_val;
 }
 
@@ -236,6 +272,12 @@ bool Array<T>::is_square() const {
 template<typename T>
 void Array<T>::fill(const T& value) {
     size_t total = size();
+    if (total < 1000) {
+        for (size_t i = 0; i < total; i++) {
+            data_[i] = value;
+        }
+        return;
+    }
     unsigned nthreads = std::thread::hardware_concurrency();
     if (nthreads == 0) nthreads = 2;
     size_t block = total / nthreads;
@@ -268,6 +310,27 @@ void Array<T>::transpose() {
     std::vector<size_t> new_strides = compute_strides(new_shape);
     size_t total = size();
     T* new_data = new T[total];
+    if (total < 1000) {
+        for (size_t i = 0; i < total; i++) {
+            std::vector<size_t> new_idx(new_shape.size());
+            size_t tmp = i;
+            for (int k = static_cast<int>(new_shape.size()) - 1; k >= 0; k--) {
+                new_idx[k] = tmp % new_shape[k];
+                tmp /= new_shape[k];
+            }
+            std::vector<size_t> orig_idx(new_idx.rbegin(), new_idx.rend());
+            size_t orig_flat = 0;
+            for (size_t k = 0; k < orig_idx.size(); k++) {
+                orig_flat += orig_idx[k] * strides_[k];
+            }
+            new_data[i] = data_[orig_flat];
+        }
+        delete[] data_;
+        data_ = new_data;
+        shape_ = new_shape;
+        strides_ = new_strides;
+        return;
+    }
     unsigned nthreads = std::thread::hardware_concurrency();
     if (nthreads == 0) nthreads = 2;
     size_t block = total / nthreads;
@@ -301,13 +364,9 @@ void Array<T>::transpose() {
 
 template<typename T>
 void Array<T>::reverse() {
+    if (shape_.size() == 0) return;
     size_t total = size();
-    T* new_data = new T[total];
-    for (size_t i = 0; i < total; i++) {
-        new_data[i] = data_[total - 1 - i];
-    }
-    delete[] data_;
-    data_ = new_data;
+    std::reverse(data_, data_ + total);
 }
 
 template<typename T>
@@ -342,41 +401,79 @@ Array<T> Array<T>::copy() const {
 
 template<typename T>
 T& Array<T>::operator()(size_t index) {
+    if (index >= size() || index < 0) throw std::out_of_range("Index out of range");
     return data_[index];
 }
 
 template<typename T>
 const T& Array<T>::operator()(size_t index) const {
+    if (index >= size() || index < 0) throw std::out_of_range("Index out of range");
     return data_[index];
 }
 
 template<typename T>
 T& Array<T>::operator()(const std::vector<size_t>& indices) {
-    return data_[compute_index(indices)];
+    if (indices.size() != shape_.size()) throw std::invalid_argument("Number of indices must match number of dimensions");
+    if (indices.size() == 0) throw std::invalid_argument("No indices provided");
+    size_t index = compute_index(indices);
+    if (index >= size()) throw std::out_of_range("Index out of range");
+    return data_[index];
 }
 
 template<typename T>
 const T& Array<T>::operator()(const std::vector<size_t>& indices) const {
-    return data_[compute_index(indices)];
+    if (indices.size() != shape_.size()) throw std::invalid_argument("Number of indices must match number of dimensions");
+    if (indices.size() == 0) throw std::invalid_argument("No indices provided");
+    size_t index = compute_index(indices);
+    if (index >= size()) throw std::out_of_range("Index out of range");
+    return data_[index];
+}
+
+template<typename T>
+template<typename... Indices>
+T& Array<T>::operator()(Indices... indices) {
+    if (sizeof...(indices) != shape_.size()) throw std::invalid_argument("Number of indices must match number of dimensions");
+    if (sizeof...(indices) == 0) throw std::invalid_argument("No indices provided");
+    if (sizeof...(indices) > shape_.size()) throw std::invalid_argument("Too many indices provided");
+    std::vector<size_t> idx = {static_cast<size_t>(indices)...};
+    size_t index = compute_index(idx);
+    if (index >= size()) throw std::out_of_range("Index out of range");
+    return data_[index];
+}
+
+template<typename T>
+template<typename... Indices>
+const T& Array<T>::operator()(Indices... indices) const {
+    std::vector<size_t> idx = {static_cast<size_t>(indices)...};
+    if (sizeof...(indices) != shape_.size()) throw std::invalid_argument("Number of indices must match number of dimensions");
+    if (sizeof...(indices) == 0) throw std::invalid_argument("No indices provided");
+    if (sizeof...(indices) > shape_.size()) throw std::invalid_argument("Too many indices provided");
+    size_t index = compute_index(idx);
+    if (index >= size()) throw std::out_of_range("Index out of range");
+    return data_[compute_index(index)];
 }
 
 template<typename T>
 T& Array<T>::operator[](size_t index) {
+    if (index >= size()) throw std::out_of_range("Index out of range");
     return operator()({index});
 }
 
 template<typename T>
 const T& Array<T>::operator[](size_t index) const {
+    if (index >= size()) throw std::out_of_range("Index out of range");
     return operator()({index});
 }
 
 template<typename T>
 T& Array<T>::operator[](const std::vector<size_t>& indices) {
+    if (indices.size() != shape_.size()) throw std::invalid_argument("Number of indices must match number of dimensions");
     return operator()(indices);
 }
 
 template<typename T>
 const T& Array<T>::operator[](const std::vector<size_t>& indices) const {
+    if (indices.size() != shape_.size()) throw std::invalid_argument("Number of indices must match number of dimensions");
     return operator()(indices);
 }
 
@@ -507,6 +604,624 @@ Array<T> Array<T>::operator/(const Array<T>& other) const {
 }
 
 template<typename T>
+Array<T> Array<T>::operator+(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([&, this, scalar]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j] + scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator-(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([&, this, scalar]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j] - scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator*(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([&, this, scalar]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j] * scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator/(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([&, this, scalar]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j] / scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator+=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for addition");
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &other]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] += other.data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator-=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for subtraction");
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &other]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] -= other.data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator*=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for multiplication");
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &other]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] *= other.data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator/=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for division");
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &other]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] /= other.data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator+=(const T& scalar) {
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &scalar]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] += scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator-=(const T& scalar) {
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([&, this, scalar]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] -= scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator*=(const T& scalar) {
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this]() {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] *= scalar;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator/=(const T& scalar) {
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this](size_t start, size_t end, T scalar) {
+            for (size_t j = start; j < end; j++) {
+                this->data_[j] /= scalar;
+            }
+        }, start, end, scalar));
+    }
+    for (auto &t : threads) t.join();
+    return *this;
+}
+
+template<typename T>
+Array<T> Array<T>::operator-() const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = -this->data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator+() const {
+    return copy();
+}
+
+template<typename T>
+Array<T> Array<T>::operator++() {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = ++this->data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator--() {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = --this->data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator++(int) {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j]++;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator--(int) {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j]--;
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator!() const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = !this->data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator~() const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = ~this->data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator&() const {
+    Array<T> result(shape_);
+    size_t total = size();
+    unsigned nthreads = std::thread::hardware_concurrency();
+    if (nthreads == 0) nthreads = 2;
+    size_t block = total / nthreads;
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < nthreads; i++) {
+        size_t start = i * block;
+        size_t end = (i == nthreads - 1) ? total : start + block;
+        threads.push_back(std::thread([=, this, &result]() {
+            for (size_t j = start; j < end; j++) {
+                result.data_[j] = this->data_[j];
+            }
+        }));
+    }
+    for (auto &t : threads) t.join();
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator|(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for bitwise OR");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] | other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator^(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for bitwise XOR");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] ^ other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator&=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for bitwise AND assignment");
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        data_[i] &= other.data_[i];
+    }
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator|=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for bitwise OR assignment");
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        data_[i] |= other.data_[i];
+    }
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator^=(const Array<T>& other) {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for bitwise XOR assignment");
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        data_[i] ^= other.data_[i];
+    }
+    return *this;
+}
+
+template<typename T>
+Array<T> Array<T>::operator&(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] & scalar;
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator|(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] | scalar;
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator^(const T& scalar) const {
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] ^ scalar;
+    }
+    return result;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator&=(const T& scalar) {
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        data_[i] &= scalar;
+    }
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator|=(const T& scalar) {
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        data_[i] |= scalar;
+    }
+    return *this;
+}
+
+template<typename T>
+Array<T>& Array<T>::operator^=(const T& scalar) {
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        data_[i] ^= scalar;
+    }
+    return *this;
+}
+
+template<typename T>
+Array<T> Array<T>::operator==(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for equality comparison");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] == other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator!=(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for inequality comparison");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] != other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator<(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for less-than comparison");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] < other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator<=(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for less-than-or-equal comparison");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] <= other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator>(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for greater-than comparison");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] > other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator>=(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for greater-than-or-equal comparison");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] >= other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator&&(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for logical AND");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] && other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
+Array<T> Array<T>::operator||(const Array<T>& other) const {
+    if (shape_ != other.shape_) throw std::runtime_error("Shapes do not match for logical OR");
+    Array<T> result(shape_);
+    size_t total = size();
+    for (size_t i = 0; i < total; i++) {
+        result.data_[i] = data_[i] || other.data_[i];
+    }
+    return result;
+}
+
+template<typename T>
 void Array<T>::print() const {
     std::cout << "[";
     size_t total = size();
@@ -534,6 +1249,7 @@ size_t Array<T>::compute_index(const std::vector<size_t>& indices) const {
     size_t index = 0;
     for (size_t i = 0; i < indices.size(); i++) {
         if (indices[i] >= shape_[i]) throw std::runtime_error("Index out of bounds");
+        if (indices[i] < 0) throw std::runtime_error("Negative index not allowed");
         index += indices[i] * strides_[i];
     }
     return index;

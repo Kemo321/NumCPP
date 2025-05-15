@@ -32,11 +32,8 @@ set(NUMCPP_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(NUMCPP_TEST_DIR ${CMAKE_SOURCE_DIR}/test/NDArray)
 
 # Test sources
-set(TEST_SOURCES
-    ${NUMCPP_TEST_DIR}/ConDes.cpp
-    ${NUMCPP_TEST_DIR}/Prop.cpp
-    ${NUMCPP_TEST_DIR}/Modify.cpp
-    ${NUMCPP_TEST_DIR}/Access.cpp
+file(GLOB_RECURSE TEST_SOURCES
+    ${NUMCPP_TEST_DIR}/*.cpp
 )
 
 # Add test executable
