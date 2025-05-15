@@ -1,15 +1,15 @@
 #ifndef ARRAY_HPP
 #define ARRAY_HPP
 
-#include <vector>
-#include <stdexcept>
+#include <cmath>
 #include <initializer_list>
 #include <iostream>
-#include <cmath>
+#include <stdexcept>
+#include <vector>
 
 namespace NumCPP {
 
-template<typename T = double>
+template <typename T = double>
 class Array {
 public:
     // Constructors and Destructor
@@ -52,7 +52,7 @@ public:
     Array<T> transposed() const;
     Array<T> powed(const T& exponent) const;
     Array<T> reversed() const;
-    
+
     // Return a copy of the array
     Array<T> copy() const;
 
@@ -61,9 +61,9 @@ public:
     const T& operator()(size_t index) const;
     T& operator()(const std::vector<size_t>& indices);
     const T& operator()(const std::vector<size_t>& indices) const;
-    template<typename... Indices>
+    template <typename... Indices>
     T& operator()(Indices... indices);
-    template<typename... Indices>
+    template <typename... Indices>
     const T& operator()(Indices... indices) const;
 
     T& operator[](size_t index);

@@ -5,7 +5,7 @@
 
 namespace NumCPP {
 
-template<typename T>
+template <typename T>
 class Matrix {
 public:
     Matrix(Array<T>& arr);

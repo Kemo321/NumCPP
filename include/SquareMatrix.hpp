@@ -5,7 +5,7 @@
 
 namespace NumCPP {
 
-template<typename T>
+template <typename T>
 class SquareMatrix {
 public:
     SquareMatrix(Array<T>& arr);
