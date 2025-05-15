@@ -27,8 +27,16 @@ jobs:
     container: gcc:${{ matrix.gcc }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install CMake
+        run: |
+          apt update --yes
+          apt install --yes wget
+          wget https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh
+          chmod +x cmake-3.27.7-linux-x86_64.sh
+          ./cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/usr/local
+          cmake --version
       - name: Install dependencies
-        run: apt update --yes && apt install --yes cmake clang-tidy libgtest-dev googletest
+        run: apt update --yes && apt install --yes clang-tidy libgtest-dev googletest
       - name: Build Google Test
         run: cd /usr/src/googletest && mkdir build && cd build && cmake .. && make && make install
       - name: Create build directory
@@ -53,6 +61,14 @@ jobs:
     container: gcc:${{ matrix.gcc }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install CMake
+        run: |
+          apt update --yes
+          apt install --yes wget
+          wget https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh
+          chmod +x cmake-3.27.7-linux-x86_64.sh
+          ./cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/usr/local
+          cmake --version
       - name: Install dependencies
         run: apt update --yes && apt install --yes libgtest-dev googletest
       - name: Build Google Test
