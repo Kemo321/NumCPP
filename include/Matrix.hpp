@@ -20,7 +20,6 @@ public:
 
     Matrix<T>& operator=(const Matrix<T>& other);
     Matrix<T>& operator=(Matrix<T>&& other) noexcept;
-    
 
     Matrix(const std::vector<size_t>& shape, const T& init_val = T());
     Matrix(std::initializer_list<size_t> shape, const T& init_val = T());
@@ -33,7 +32,7 @@ public:
     size_t ndim() const;
     size_t size() const;
     std::vector<size_t> strides() const;
-    
+
     // Basic Matrix Operations
     T sum() const;
     T mean() const;
@@ -42,7 +41,7 @@ public:
     bool is_square() const;
     Matrix<T> reshape(const std::vector<size_t>& new_shape) const;
     Array<T> flatten() const;
-    
+
     // Modification Methods
     void fill(const T& value);
     void zeros();
@@ -50,8 +49,7 @@ public:
     void transpose();
     void reverse();
     void pow(const T& exponent);
-    
-    
+
     // Return modified matrix
     Matrix<T> filled(const T& value) const;
     Matrix<T> zeros_like() const;
@@ -59,7 +57,7 @@ public:
     Matrix<T> transposed() const;
     Matrix<T> powed(const T& exponent) const;
     Matrix<T> reversed() const;
-    
+
     // Return a copy of the matrix
     Matrix<T> copy() const;
 
@@ -78,7 +76,6 @@ public:
     // Matrix-specific operations
     Matrix<T> transpose() const;
     Matrix<T> dot(const Matrix<T>& other) const;
-
 
     // Arithmetic Operators (element-wise)
     Matrix<T> operator+(const Matrix<T>& other) const;

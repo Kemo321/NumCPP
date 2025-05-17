@@ -2,8 +2,8 @@
 #define SQUAREMATRIX_HPP
 
 #include "Matrix.hpp"
-#include <vector>
 #include <cmath>
+#include <vector>
 
 namespace NumCPP {
 
