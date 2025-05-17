@@ -29,7 +29,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BACKUP}")
 
 # Source and include directories
 set(NUMCPP_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
-set(NUMCPP_TEST_DIR ${CMAKE_SOURCE_DIR}/test/NDArray)
+set(NUMCPP_TEST_DIR ${CMAKE_SOURCE_DIR}/test/Array)
 
 # Test sources
 file(GLOB_RECURSE TEST_SOURCES

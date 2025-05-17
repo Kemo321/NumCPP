@@ -15,12 +15,17 @@ public:
     // Constructors and Destructor
     Array();
     ~Array();
-    Array(const Array<T>& other);
-    Array(Array<T>&& other) noexcept;
+    
+    // Copy and Move Constructors
     Array<T>& operator=(const Array<T>& other);
     Array<T>& operator=(Array<T>&& other) noexcept;
+
+    Array(const Array<T>& other);
+    Array(Array<T>&& other) noexcept;
+
     Array(const std::vector<size_t>& shape, const T& init_val = T());
     Array(std::initializer_list<size_t> shape, const T& init_val = T());
+    
     Array(const std::vector<size_t>& shape, const std::vector<T>& data);
     Array(std::initializer_list<size_t> shape, const std::vector<T>& data);
 
@@ -29,14 +34,16 @@ public:
     size_t ndim() const;
     size_t size() const;
     std::vector<size_t> strides() const;
-    Array<T> reshape(const std::vector<size_t>& new_shape) const;
-    std::vector<T> flatten() const;
+    
+    // Basic Array Operations
     T sum() const;
     T mean() const;
     T min() const;
     T max() const;
     bool is_square() const;
-
+    Array<T> reshape(const std::vector<size_t>& new_shape) const;
+    std::vector<T> flatten() const;
+    
     // Modify Array
     void fill(const T& value);
     void zeros();
@@ -129,6 +136,8 @@ public:
 
     // Utility
     void print() const;
+    void print_shape() const;
+    void print_strides() const;
 
 protected:
     std::vector<size_t> shape_;

@@ -1,22 +1,27 @@
 #ifndef SQUAREMATRIX_HPP
 #define SQUAREMATRIX_HPP
 
-#include "Array.hpp"
+#include "Matrix.hpp"
+#include <vector>
+#include <cmath>
 
 namespace NumCPP {
 
 template <typename T>
-class SquareMatrix {
-public:
-    SquareMatrix(Array<T>& arr);
-    T determinant() const;
-    void invert();
-    Array<T> inverted() const;
-
+class SquareMatrix : public Matrix<T> {
 private:
-    Array<T>& arr_;
-    T determinant_helper() const;
-    void invert_helper();
+    size_t size; // Store the size for convenience
+
+public:
+    // Constructors
+    SquareMatrix(size_t n);
+    SquareMatrix(const Array<T>& arr);
+
+    // Determinant
+    T determinant() const;
+
+    // Inverse
+    SquareMatrix<T> inverse() const;
 };
 
 } // namespace NumCPP
